@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pi Hokm Global PvP Arena</title>
+  <script src="https://sdk.minepi.com/pi-sdk.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #141c33;
+      --card-bg: #1c2645;
+      --gold: #f5b942;
+      --purple: #8b5cf6;
+      --green: #10b981;
+      --red: #ef4444;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; font-family: Tahoma, system-ui, -apple-system, sans-serif; }
+    body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header {
+      background: var(--panel); padding: 14px 20px; display: flex; flex-wrap: wrap;
+      justify-content: space-between; align-items: center; border-bottom: 1px solid #28355e; gap: 10px;
+    }
+    .brand { font-size: 1.2rem; font-weight: bold; color: var(--gold); display: flex; align-items: center; gap: 8px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    select, input, button {
+      padding: 8px 12px; border-radius: 8px; border: 1px solid #334155;
+      background: #0f172a; color: var(--text); font-size: 0.9rem;
+    }
+    button { cursor: pointer; font-weight: bold; border: none; transition: 0.2s; }
+    .btn-gold { background: var(--gold); color: #0f172a; }
+    .btn-purple { background: var(--purple); color: #fff; }
+    .btn-green { background: var(--green); color: #06281e; }
+    .btn-red { background: var(--red); color: #fff; }
+    button:hover { opacity: 0.9; transform: translateY(-1px); }
+    .container { max-width: 1100px; margin: 20px auto; padding: 0 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 16px; }
+    .box { background: var(--panel); border: 1px solid #263359; border-radius: 14px; padding: 18px; }
+    .badge { background: rgba(245,185,66,0.15); color: var(--gold); padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; }
+    .modal {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+      justify-content: center; align-items: center; z-index: 100; padding: 16px;
+    }
+    .modal.active { display: flex; }
+    .modal-content { background: var(--panel); border: 1px solid #334155; border-radius: 16px; max-width: 500px; width: 100%; padding: 22px; }
+    .table-felt {
+      background: radial-gradient(circle, #14532d 0%, #052e16 100%);
+      border: 4px solid #78350f; border-radius: 24px; padding: 20px; margin-top: 20px; min-height: 440px;
+      display: flex; flex-direction: column; justify-content: space-between;
+    }
+    .cards-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+    .playing-card {
+      width: 64px; height: 92px; background: #fff; color: #0f172a; border-radius: 8px;
+      display: flex; flex-direction: column; justify-content: space-between; padding: 6px;
+      font-weight: bold; font-size: 1rem; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+    }
+    .playing-card.red { color: #dc2626; }
+    .playing-card.disabled { opacity: 0.45; cursor: not-allowed; }
+    .trick-area { display: flex; justify-content: center; gap: 14px; min-height: 100px; align-items: center; }
+    .info-line { display: flex; justify-content: space-between; font-size: 0.88rem; color: var(--muted); margin: 6px 0; }
+    .mono { font-family: monospace; word-break: break-all; font-size: 0.8rem; color: var(--gold); }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">♠️ Pi Hokm Global PvP <span class="badge" id="commissionBadge">15% Platform Fee</span></div>
+  <div class="controls">
+    <select id="langSelect" onchange="changeLang(this.value)">
+      <option value="fa">فارسی (FA)</option>
+      <option value="en">English (EN)</option>
+      <option value="ar">العربية (AR)</option>
+      <option value="zh">中文 (ZH)</option>
+      <option value="es">Español (ES)</option>
+      <option value="tr">Türkçe (TR)</option>
+      <option value="ru">Русский (RU)</option>
+      <option value="hi">हिन्दी (HI)</option>
+      <option value="fr">Français (FR)</option>
+      <option value="ko">한국어 (KO)</option>
+      <option value="ja">日本語 (JA)</option>
+    </select>
+    <span id="userWalletLabel">موجودی: <b>0.00 π</b></span>
+    <button class="btn-purple" onclick="authenticatePi()" id="btnAuth">اتصال کیف پول Pi</button>
+    <button class="btn-green" onclick="openModal('walletModal')" id="btnWallet">واریز / برداشت</button>
+    <button class="btn-gold" onclick="openModal('ownerModal')" id="btnOwner">خزانه مالک (15% + 10%)</button>
+  </div>
+</header>
+
+<div class="container" id="lobbyView">
+  <div class="box">
+    <h2 id="lblCustomTitle">اتاق آزاد با مبلغ دلخواه (Custom Stake PvP)</h2>
+    <p style="color:var(--muted); font-size:0.9rem;" id="lblCustomDesc">
+      هر مبلغ دلخواه (حداقل 0.1 Pi) وارد کنید. 100% بدون ربات - فقط بین 4 پایونیر واقعی.
+    </p>
+    <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+      <input type="number" id="customStakeInput" value="2" min="0.1" step="0.1" oninput="updateCustomPreview()" />
+      <select id="targetHandsSelect">
+        <option value="1">1 دست سریع</option>
+        <option value="3">3 دست</option>
+        <option value="7" selected>7 دست کامل</option>
+      </select>
+      <button class="btn-gold" onclick="joinLobbyRoom('custom_' + document.getElementById('customStakeInput').value, Number(document.getElementById('customStakeInput').value))" id="btnCreateCustom">
+        ورود / ساخت اتاق دلخواه
+      </button>
+    </div>
+    <div id="customPreview" style="margin-top:12px; font-size:0.88rem; color:var(--gold);"></div>
+  </div>
+
+  <div class="grid" id="presetTables"></div>
+</div>
+
+<!-- میز بازی زنده -->
+<div class="container" id="gameView" style="display:none;">
+  <div class="box" style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+    <div>
+      <strong id="roomTitle">میز بازی</strong> |
+      <span>حکم: <b id="hokmDisplay" style="color:var(--gold);">در انتظار انتخاب حاکم...</b></span> |
+      <span>امتیاز دست: <b id="handsScore">تیم A: 0 - تیم B: 0</b></span> |
+      <span>دور فعلی: <b id="tricksScore">0 - 0</b></span>
+    </div>
+    <button class="btn-red" onclick="leaveGame()">خروج به لابی</button>
+  </div>
+
+  <div class="table-felt">
+    <div id="playersStatus" style="display:flex; justify-content:space-around; flex-wrap:wrap; gap:8px;"></div>
+
+    <div id="hokmChooser" style="display:none; text-align:center; background:rgba(0,0,0,0.6); padding:14px; border-radius:12px;">
+      <p>شما حاکم هستید! خال حکم را انتخاب کنید:</p>
+      <button class="btn-gold" onclick="chooseHokm('spades')">♠ پیک</button>
+      <button class="btn-red" onclick="chooseHokm('hearts')">♥ دل</button>
+      <button class="btn-gold" onclick="chooseHokm('clubs')">♣ گشنیز</button>
+      <button class="btn-red" onclick="chooseHokm('diamonds')">♦ خشت</button>
+    </div>
+
+    <div class="trick-area" id="trickArea"></div>
+
+    <div>
+      <div style="text-align:center; font-size:0.85rem; color:#bbf7d0;" id="turnBanner">در انتظار تکمیل 4 پایونیر...</div>
+      <div class="cards-row" id="myHandArea"></div>
+    </div>
+  </div>
+</div>
+
+<!-- مودال واریز و برداشت پایونیر -->
+<div class="modal" id="walletModal">
+  <div class="modal-content">
+    <h3>کیف پول Pi Network (واریز و برداشت)</h3>
+    <hr style="border-color:#28355e;" />
+    <h4>۱. شارژ حساب (Deposit via Pi SDK)</h4>
+    <div style="display:flex; gap:8px;">
+      <input type="number" id="depositInput" value="10" min="0.1" step="0.1" style="flex:1;" />
+      <button class="btn-green" onclick="depositPi()">واریز Pi</button>
+    </div>
+
+    <h4 style="margin-top:18px;">۲. برداشت به کیف پول Pi (کسر 10% کارمزد پلتفرم)</h4>
+    <input type="text" id="withdrawAddress" placeholder="آدرس کیف پول Pi شما (G...)" style="width:100%; margin-bottom:8px;" />
+    <div style="display:flex; gap:8px;">
+      <input type="number" id="withdrawInput" value="5" min="0.1" step="0.1" oninput="updateWithdrawPreview()" style="flex:1;" />
+      <button class="btn-purple" onclick="withdrawPi()">برداشت Pi</button>
+    </div>
+    <div id="withdrawPreview" style="margin-top:8px; font-size:0.85rem; color:var(--gold);"></div>
+
+    <div style="margin-top:16px; text-align:left;">
+      <button onclick="closeModal('walletModal')">بستن</button>
+    </div>
+  </div>
+</div>
+
+<!-- مودال خزانه مالک پلتفرم -->
+<div class="modal" id="ownerModal">
+  <div class="modal-content">
+    <h3>داشبورد درآمد سازنده پلتفرم (@behrad_owner)</h3>
+    <div class="info-line"><span>کمیسیون میزهای بازی:</span><b>15% کل استخر</b></div>
+    <div class="info-line"><span>کارمزد برداشت پایونیرها:</span><b>10% مبلغ برداشت</b></div>
+    <div class="info-line"><span>موجودی قابل برداشت خزانه:</span><b id="ownerBalanceDisplay" style="color:var(--gold);">0.0000 π</b></div>
+    <div style="margin-top:10px;">
+      <label style="font-size:0.82rem; color:var(--muted);">آدرس کیف پول Mainnet مالک:</label>
+      <div class="mono" id="ownerWalletText">GBU52FKS5O5WBXUQKBGADZW4J3MNUBGVNHI2IK4X53F6LYA5NXXKPEIZ</div>
+    </div>
+    <div style="display:flex; gap:8px; margin-top:14px;">
+      <button class="btn-gold" style="flex:1;" onclick="claimOwnerTreasury()">انتقال کل خزانه به کیف پول مالک</button>
+      <button onclick="closeModal('ownerModal')">بستن</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const OWNER_WALLET = "GBU52FKS5O5WBXUQKBGADZW4J3MNUBGVNHI2IK4X53F6LYA5NXXKPEIZ";
+  // آدرس سرور Node.js خود را پس از راه‌اندازی اینجا قرار دهید (در صورت هم‌دامنه بودن خالی بگذارید)
+  const BACKEND_URL = "";
+
+  const i18n = {
+    fa: { dir: "rtl", auth: "اتصال کیف پول Pi", wallet: "واریز / برداشت", owner: "خزانه مالک", custom: "اتاق آزاد با مبلغ دلخواه" },
+    en: { dir: "ltr", auth: "Connect Pi Wallet", wallet: "Deposit / Withdraw", owner: "Owner Treasury", custom: "Custom Stake PvP Room" },
+    ar: { dir: "rtl", auth: "ربط محفظة Pi", wallet: "إيداع / سحب", owner: "خزينة المالك", custom: "غرفة برهان مخصص" },
+    zh: { dir: "ltr", auth: "连接 Pi 钱包", wallet: "充值 / 提现", owner: "平台收益金库", custom: "自定义金额房间" },
+    es: { dir: "ltr", auth: "Conectar Billetera Pi", wallet: "Depositar / Retirar", owner: "Tesorería del Dueño", custom: "Sala de Apuesta Libre" },
+    tr: { dir: "ltr", auth: "Pi Cüzdan Bağla", wallet: "Yatır / Çek", owner: "Kurucu Kasası", custom: "Özel Tutarlı Oda" },
+    ru: { dir: "ltr", auth: "Подключить Pi Кошелек", wallet: "Пополнить / Вывести", owner: "Казна владельца", custom: "Комната со своей ставкой" },
+    hi: { dir: "ltr", auth: "Pi वॉलेट जोड़ें", wallet: "जमा / निकासी", owner: "मालिक का खजाना", custom: "कस्टम स्टेक रूम" },
+    fr: { dir: "ltr", auth: "Connecter Pi Wallet", wallet: "Dépôt / Retrait", owner: "Trésorerie Propriétaire", custom: "Salle Mise Libre" },
+    ko: { dir: "ltr", auth: "Pi 지갑 연결", wallet: "입금 / 출금", owner: "운영자 금고", custom: "자유 베팅 방" },
+    ja: { dir: "ltr", auth: "Pi ウォレット接続", wallet: "入金 / 出金", owner: "オーナー金庫", custom: "カスタムベットルーム" }
+  };
+
+  let state = {
+    username: "Pioneer_" + Math.floor(1000 + Math.random() * 9000),
+    uid: "uid_demo",
+    balance: 25.0,
+    ownerTreasury: 0.0,
+    roomId: null,
+    mySeat: -1,
+    myCards: [],
+    hokmSuit: null,
+    turnIndex: -1
+  };
+
+  let socket = null;
+  try {
+    socket = io(BACKEND_URL || window.location.origin);
+    bindSocketEvents();
+  } catch (e) { console.warn("Socket offline mode"); }
+
+  // راه‌اندازی اولیه Pi SDK
+  if (window.Pi) {
+    window.Pi.init({ version: "2.0", sandbox: true });
+  }
+
+  async function authenticatePi() {
+    if (!window.Pi) return alert("لطفاً برنامه را داخل Pi Browser باز کنید.");
+    try {
+      const auth = await window.Pi.authenticate(["username", "payments"], (p) => console.log("Incomplete payment", p));
+      state.username = auth.user.username;
+      state.uid = auth.user.uid;
+      document.getElementById("btnAuth").innerText = "@" + state.username;
+      updateUI();
+    } catch (err) {
+      alert("خطا در احراز هویت Pi: " + err.message);
+    }
+  }
+
+  function depositPi() {
+    const amount = Number(document.getElementById("depositInput").value);
+    if (amount <= 0) return;
+
+    if (window.Pi) {
+      window.Pi.createPayment(
+        { amount, memo: "Charge Pi Hokm Balance", metadata: { username: state.username } },
+        {
+          onReadyForServerApproval: (paymentId) => {
+            fetch(BACKEND_URL + "/api/payments/approve", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ paymentId })
+            });
+          },
+          onReadyForServerCompletion: (paymentId, txid) => {
+            fetch(BACKEND_URL + "/api/payments/complete", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ paymentId, txid, username: state.username })
+            }).then(r => r.json()).then(d => {
+              if (d.success) { state.balance = d.newBalance; updateUI(); }
+            });
+          },
+          onCancel: () => {},
+          onError: (err) => alert(err.message)
+        }
+      );
+    } else {
+      state.balance = Number((state.balance + amount).toFixed(4));
+      updateUI();
+      alert(`مبلغ ${amount} Pi به موجودی شما اضافه شد.`);
+    }
+  }
+
+  function withdrawPi() {
+    const amount = Number(document.getElementById("withdrawInput").value);
+    const address = document.getElementById("withdrawAddress").value.trim();
+    if (!address) return alert("لطفاً آدرس کیف پول Pi خود را وارد کنید.");
+    if (amount <= 0 || amount > state.balance) return alert("موجودی کافی نیست.");
+
+    const fee = Number((amount * 0.10).toFixed(4)); // 10% کارمزد برداشت مالک
+    const net = Number((amount - fee).toFixed(4)); // 90% خالص پایونیر
+
+    state.balance = Number((state.balance - amount).toFixed(4));
+    state.ownerTreasury = Number((state.ownerTreasury + fee).toFixed(4));
+    updateUI();
+
+    if (BACKEND_URL) {
+      fetch(BACKEND_URL + "/api/payments/withdraw", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: state.username, userUid: state.uid, amount })
+      });
+    }
+    alert(`برداشت ثبت شد!\nخالص واریزی به کیف پول شما: ${net} π\nکارمزد پلتفرم (10%): ${fee} π`);
+  }
+
+  function claimOwnerTreasury() {
+    if (state.ownerTreasury <= 0) return alert("موجودی خزانه مالک صفر است.");
+    const claimed = state.ownerTreasury;
+    state.ownerTreasury = 0;
+    updateUI();
+    alert(`مبلغ ${claimed.toFixed(4)} π به کیف پول مالک (${OWNER_WALLET}) انتقال یافت.`);
+  }
+
+  function joinLobbyRoom(roomId, stake) {
+    if (stake < 0.1) return alert("حداقل مبلغ ورود 0.1 Pi است.");
+    if (state.balance < stake) return alert("موجودی Pi شما برای این میز کافی نیست.");
+
+    state.roomId = roomId;
+    document.getElementById("lobbyView").style.display = "none";
+    document.getElementById("gameView").style.display = "block";
+    document.getElementById("roomTitle").innerText = `میز ${roomId} (${stake} π)`;
+
+    if (socket && socket.connected) {
+      socket.emit("join_room", {
+        roomId,
+        username: state.username,
+        stake,
+        targetHands: Number(document.getElementById("targetHandsSelect").value)
+      });
+    }
+  }
+
+  function leaveGame() {
+    state.roomId = null;
+    document.getElementById("gameView").style.display = "none";
+    document.getElementById("lobbyView").style.display = "block";
+  }
+
+  function chooseHokm(suit) {
+    document.getElementById("hokmChooser").style.display = "none";
+    if (socket) socket.emit("declare_hokm", { roomId: state.roomId, suit });
+  }
+
+  function playCard(cardId) {
+    if (socket) socket.emit("play_card", { roomId: state.roomId, cardId });
+  }
+
+  function bindSocketEvents() {
+    socket.on("error_msg", (msg) => alert(msg));
+
+    socket.on("room_update", (data) => {
+      const me = data.players.find(p => p.username === state.username);
+      if (me) state.mySeat = me.seatIndex;
+      document.getElementById("playersStatus").innerHTML = data.players
+        .map(p => `<span class="badge">صندلی ${p.seatIndex + 1}: @${p.username}</span>`).join("");
+      document.getElementById("turnBanner").innerText = `بازیکنان حاضر: ${data.players.length} از 4 نفر`;
+    });
+
+    socket.on("deal_initial_five", (data) => {
+      state.myCards = data.firstFiveCards;
+      renderMyCards();
+      if (data.hakemIndex === state.mySeat) {
+        document.getElementById("hokmChooser").style.display = "block";
+        document.getElementById("turnBanner").innerText = "نوبت شما برای تعیین حکم است!";
+      } else {
+        document.getElementById("turnBanner").innerText = "در انتظار انتخاب حکم توسط حاکم...";
+      }
+    });
+
+    socket.on("hand_started", (data) => {
+      state.hokmSuit = data.hokmSuit;
+      state.turnIndex = data.turnIndex;
+      state.myCards = data.myCards;
+      document.getElementById("hokmDisplay").innerText = data.hokmSuit.toUpperCase();
+      renderMyCards();
+      updateTurnText();
+    });
+
+    socket.on("card_played", (data) => {
+      if (data.seatIndex === state.mySeat) {
+        state.myCards = state.myCards.filter(c => c.id !== data.card.id);
+        renderMyCards();
+      }
+      renderTrick(data.trick);
+    });
+
+    socket.on("turn_changed", (data) => {
+      state.turnIndex = data.turnIndex;
+      updateTurnText();
+    });
+
+    socket.on("trick_completed", (data) => {
+      document.getElementById("tricksScore").innerText = `${data.tricksWon.teamA} - ${data.tricksWon.teamB}`;
+      document.getElementById("trickArea").innerHTML = "";
+      state.turnIndex = data.nextTurn;
+      updateTurnText();
+    });
+
+    socket.on("match_finished", (summary) => {
+      alert(`پایان بازی!\nبرندگان: ${summary.winners.join(" & ")}\nجایزه هر برنده: ${summary.prizePerWinner} π\nکارمزد پلتفرم (15%): ${summary.ownerCommission} π`);
+      leaveGame();
+    });
+  }
+
+  function renderMyCards() {
+    const symbols = { spades: "♠", hearts: "♥", clubs: "♣", diamonds: "♦" };
+    document.getElementById("myHandArea").innerHTML = state.myCards.map(c => {
+      const isRed = c.suit === "hearts" || c.suit === "diamonds";
+      return `<div class="playing-card ${isRed ? "red" : ""}" onclick="playCard('${c.id}')">
+        <span>${c.rank}</span>
+        <span style="font-size:1.4rem; text-align:center;">${symbols[c.suit]}</span>
+      </div>`;
+    }).join("");
+  }
+
+  function renderTrick(trick) {
+    const symbols = { spades: "♠", hearts: "♥", clubs: "♣", diamonds: "♦" };
+    document.getElementById("trickArea").innerHTML = trick.map(t => {
+      const isRed = t.card.suit === "hearts" || t.card.suit === "diamonds";
+      return `<div class="playing-card ${isRed ? "red" : ""}">
+        <span>${t.card.rank}</span>
+        <span style="font-size:1.4rem; text-align:center;">${symbols[t.card.suit]}</span>
+        <span style="font-size:0.65rem;">@${t.username}</span>
+      </div>`;
+    }).join("");
+  }
+
+  function updateTurnText() {
+    document.getElementById("turnBanner").innerText =
+      state.turnIndex === state.mySeat ? "نوبت شماست! یک کارت بازی کنید." : `در انتظار حرکت صندلی ${state.turnIndex + 1}...`;
+  }
+
+  function renderPresetTables() {
+    const stakes = [1, 5, 25, 100];
+    document.getElementById("presetTables").innerHTML = stakes.map(s => {
+      const pot = s * 4;
+      const fee = (pot * 0.15).toFixed(2);
+      const winEach = ((pot * 0.85) / 2).toFixed(2);
+      return `<div class="box">
+        <h3>میز ${s} Pi</h3>
+        <div class="info-line"><span>کل استخر (4 نفر):</span><b>${pot} π</b></div>
+        <div class="info-line"><span>کمیسیون مالک (15%):</span><b>${fee} π</b></div>
+        <div class="info-line"><span>جایزه هر برنده (42.5%):</span><b style="color:var(--green);">${winEach} π</b></div>
+        <button class="btn-purple" style="width:100%; margin-top:10px;" onclick="joinLobbyRoom('table_${s}', ${s})">ورود به میز ${s} π</button>
+      </div>`;
+    }).join("");
+  }
+
+  function updateCustomPreview() {
+    const s = Number(document.getElementById("customStakeInput").value) || 0;
+    const pot = (s * 4).toFixed(2);
+    const fee = (pot * 0.15).toFixed(2);
+    const win = ((pot * 0.85) / 2).toFixed(2);
+    document.getElementById("customPreview").innerText =
+      `کل استخر: ${pot} π | سهم مالک (15%): ${fee} π | جایزه خالص هر برنده: ${win} π`;
+  }
+
+  function updateWithdrawPreview() {
+    const w = Number(document.getElementById("withdrawInput").value) || 0;
+    const fee = (w * 0.10).toFixed(4);
+    const net = (w - fee).toFixed(4);
+    document.getElementById("withdrawPreview").innerText =
+      `کارمزد برداشت (10%): ${fee} π | مبلغ خالص دریافتی شما: ${net} π`;
+  }
+
+  function changeLang(lang) {
+    const t = i18n[lang] || i18n.en;
+    document.documentElement.dir = t.dir;
+    document.documentElement.lang = lang;
+    document.getElementById("btnAuth").innerText = t.auth;
+    document.getElementById("btnWallet").innerText = t.wallet;
+    document.getElementById("btnOwner").innerText = t.owner;
+    document.getElementById("lblCustomTitle").innerText = t.custom;
+  }
+
+  function openModal(id) { document.getElementById(id).classList.add("active"); updateWithdrawPreview(); }
+  function closeModal(id) { document.getElementById(id).classList.remove("active"); }
+
+  function updateUI() {
+    document.getElementById("userWalletLabel").innerHTML = `موجودی: <b>${state.balance.toFixed(2)} π</b>`;
+    document.getElementById("ownerBalanceDisplay").innerText = `${state.ownerTreasury.toFixed(4)} π`;
+  }
+
+  renderPresetTables();
+  updateCustomPreview();
+  updateUI();
+</script>
+</body>
+</html>
